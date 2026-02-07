@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { screenStocks } from './services/geminiService';
 import { StockPerformance, ScreeningResult, ScreeningCriteria } from './types';
@@ -18,7 +17,8 @@ import {
   ChevronDown,
   ArrowUpDown,
   Star,
-  Bookmark
+  Bookmark,
+  AlertCircle
 } from 'lucide-react';
 import {
   BarChart,
@@ -61,6 +61,7 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const fetchWatchlist = async () => {
+      if (!supabase) return;
       try {
         const { data: savedStocks, error } = await supabase
           .from('watchlist')
@@ -78,6 +79,10 @@ const App: React.FC = () => {
   }, []);
 
   const toggleWatchlist = async (stock: StockPerformance) => {
+    if (!supabase) {
+      alert("Supabase is not configured. Watchlist is unavailable.");
+      return;
+    }
     const isSaved = watchlist.includes(stock.symbol);
     try {
       if (isSaved) {
@@ -100,25 +105,31 @@ const App: React.FC = () => {
       }
     } catch (err) {
       console.error("Supabase Operation Failed:", err);
+      alert("Failed to update watchlist. Ensure the 'watchlist' table exists in your Supabase project.");
     }
   };
 
   const fetchStocks = useCallback(async (indexToFetch: string) => {
+    if (loading) return;
     setLoading(true);
     setError(null);
     try {
       const result = await screenStocks(indexToFetch);
+      if (!result || !result.allStocks || result.allStocks.length === 0) {
+        throw new Error("No stock data returned from the analysis.");
+      }
       setData(result);
-    } catch (err) {
-      setError(`Failed to fetch ${indexToFetch} data.`);
+    } catch (err: any) {
+      console.error("Fetch Stocks Error:", err);
+      setError(err.message || `Failed to fetch ${indexToFetch} data. Please ensure your API_KEY is set in Vercel.`);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [loading]);
 
   useEffect(() => {
     fetchStocks(selectedIndex);
-  }, [selectedIndex, fetchStocks]);
+  }, [selectedIndex]);
 
   const handleSort = (key: SortKey) => {
     let direction: 'asc' | 'desc' = 'desc';
@@ -230,6 +241,22 @@ const App: React.FC = () => {
       </nav>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {error && (
+          <div className="mb-8 p-4 bg-rose-500/10 border border-rose-500/20 rounded-xl flex items-start gap-3 text-rose-400 animate-in fade-in slide-in-from-top-4">
+            <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <h3 className="font-bold">Application Error</h3>
+              <p className="text-sm opacity-90">{error}</p>
+              <button 
+                onClick={() => window.location.reload()}
+                className="text-xs font-bold underline hover:text-rose-300 transition-colors"
+              >
+                Retry Application
+              </button>
+            </div>
+          </div>
+        )}
+
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 mb-8">
           <div className="lg:col-span-3 space-y-6">
             <section className="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-sm">
@@ -311,7 +338,9 @@ const App: React.FC = () => {
                   <p className="text-slate-400 text-sm">Gemini 3 Pro is analyzing the EGX Market...</p>
                 </div>
               ) : error ? (
-                <div className="flex-1 p-12 text-center text-rose-400">{error}</div>
+                <div className="flex-1 p-20 text-center text-slate-500 italic text-sm">
+                  Failed to load stock data. Check error message above.
+                </div>
               ) : filteredStocks.length === 0 ? (
                 <div className="flex-1 p-20 text-center text-slate-500 italic text-sm">
                   No stocks match the current filters.
@@ -359,7 +388,7 @@ const App: React.FC = () => {
                               {stock.currentPrice.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                             </td>
                             <td className="px-6 py-4 text-right">
-                              <span className={`text-xs mono font-bold ${stock.peRatio && stock.peRatio < 10 && stock.peRatio > 0 ? 'text-amber-400' : 'text-slate-500'}`}>
+                              <span className={`text-xs mono font-bold ${stock.peRatio && stock.peRatio < 20 && stock.peRatio > 0 ? 'text-amber-400' : 'text-slate-500'}`}>
                                 {stock.peRatio && stock.peRatio > 0 ? stock.peRatio.toFixed(1) : '—'}
                               </span>
                             </td>
