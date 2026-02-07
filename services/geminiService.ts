@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
-import { StockPerformance, ScreeningResult } from "../types";
+import { StockPerformance, ScreeningResult } from "../types.ts";
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
@@ -25,7 +25,7 @@ export const screenStocks = async (index: string = "EGX33"): Promise<ScreeningRe
 
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
+      model: 'gemini-3-pro-preview',
       contents: prompt,
       config: {
         tools: [{ googleSearch: {} }],
@@ -67,7 +67,7 @@ export const screenStocks = async (index: string = "EGX33"): Promise<ScreeningRe
     })) || [];
 
     return {
-      matchingStocks: [], // Filtering done in UI
+      matchingStocks: [], 
       allStocks: data.stocks.map((s: any) => ({
         ...s,
         lastUpdated: new Date().toISOString()

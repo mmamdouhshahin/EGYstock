@@ -14,9 +14,24 @@
         font-family: 'Inter', sans-serif;
         background-color: #0f172a;
         color: #f8fafc;
+        margin: 0;
       }
       .mono {
         font-family: 'JetBrains Mono', monospace;
+      }
+      /* Custom scrollbar for a pro feel */
+      .custom-scrollbar::-webkit-scrollbar {
+        width: 6px;
+      }
+      .custom-scrollbar::-webkit-scrollbar-track {
+        background: #0f172a;
+      }
+      .custom-scrollbar::-webkit-scrollbar-thumb {
+        background: #1e293b;
+        border-radius: 10px;
+      }
+      .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+        background: #334155;
       }
     </style>
   <script type="importmap">
@@ -27,12 +42,16 @@
     "recharts": "https://esm.sh/recharts@^3.7.0",
     "@google/genai": "https://esm.sh/@google/genai@^1.39.0",
     "react/": "https://esm.sh/react@^19.2.4/",
-    "react": "https://esm.sh/react@^19.2.4"
+    "react": "https://esm.sh/react@^19.2.4",
+    "./App": "./App.tsx",
+    "./services/geminiService": "./services/geminiService.ts"
   }
 }
 </script>
 </head>
   <body>
     <div id="root"></div>
+    <!-- Explicit module entry point to prevent blank page -->
+    <script type="module" src="index.tsx"></script>
   </body>
 </html>

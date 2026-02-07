@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { screenStocks } from './services/geminiService';
-import { StockPerformance, ScreeningResult, ScreeningCriteria } from './types';
+import { screenStocks } from './services/geminiService.ts';
+import { StockPerformance, ScreeningResult, ScreeningCriteria } from './types.ts';
 import { 
   TrendingUp, 
   TrendingDown, 
@@ -16,7 +16,10 @@ import {
   EyeOff,
   ListFilter,
   Target,
-  Zap
+  Zap,
+  ChevronUp,
+  ChevronDown,
+  ArrowUpDown
 } from 'lucide-react';
 import {
   BarChart,
@@ -26,8 +29,7 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  Cell,
-  ReferenceLine
+  Cell
 } from 'recharts';
 
 const EGX_INDICES = [
@@ -37,14 +39,19 @@ const EGX_INDICES = [
   { id: 'EGX33', name: 'EGX 33 Shariah', description: 'Shariah Compliant' },
 ];
 
+type SortKey = keyof StockPerformance | 'upside';
+
 const App: React.FC = () => {
   const [data, setData] = useState<ScreeningResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedIndex, setSelectedIndex] = useState('EGX33');
+  const [showOnlyUndervalued, setShowOnlyUndervalued] = useState(false);
+  const [sortConfig, setSortConfig] = useState<{ key: SortKey, direction: 'asc' | 'desc' } | null>(null);
+
   const [criteria, setCriteria] = useState<ScreeningCriteria>({
     min6mChange: 10,
-    max6mChange: 100,
+    max6mChange: 150,
     enabled6m: true,
     min1mChange: 5,
     max1mChange: -5,
@@ -72,9 +79,18 @@ const App: React.FC = () => {
     fetchStocks(selectedIndex);
   }, [selectedIndex, fetchStocks]);
 
+  const handleSort = (key: SortKey) => {
+    let direction: 'asc' | 'desc' = 'desc';
+    if (sortConfig && sortConfig.key === key && sortConfig.direction === 'desc') {
+      direction = 'asc';
+    }
+    setSortConfig({ key, direction });
+  };
+
   const filteredStocks = useMemo(() => {
     if (!data) return [];
-    return data.allStocks.filter(stock => {
+    
+    let result = data.allStocks.filter(stock => {
       const meets6m = !criteria.enabled6m || (stock.change6m >= criteria.min6mChange && stock.change6m <= criteria.max6mChange);
       const meets1w = !criteria.enabled1w || (stock.change1w >= criteria.min1wChange && stock.change1w <= criteria.max1wChange);
       let meets1m = true;
@@ -85,9 +101,38 @@ const App: React.FC = () => {
           meets1m = stock.change1m >= criteria.min1mChange;
         }
       }
-      return meets6m && meets1m && meets1w;
+      
+      const meetsUndervalued = !showOnlyUndervalued || (stock.fairValue && stock.fairValue > stock.currentPrice);
+      
+      return meets6m && meets1m && meets1w && meetsUndervalued;
     });
-  }, [data, criteria]);
+
+    if (sortConfig) {
+      result.sort((a, b) => {
+        let aValue: any;
+        let bValue: any;
+
+        if (sortConfig.key === 'upside') {
+          aValue = a.fairValue ? (a.fairValue - a.currentPrice) / a.currentPrice : -Infinity;
+          bValue = b.fairValue ? (b.fairValue - b.currentPrice) / b.currentPrice : -Infinity;
+        } else {
+          aValue = a[sortConfig.key as keyof StockPerformance] ?? 0;
+          bValue = b[sortConfig.key as keyof StockPerformance] ?? 0;
+        }
+
+        if (aValue < bValue) return sortConfig.direction === 'asc' ? -1 : 1;
+        if (aValue > bValue) return sortConfig.direction === 'asc' ? 1 : -1;
+        return 0;
+      });
+    }
+
+    return result;
+  }, [data, criteria, showOnlyUndervalued, sortConfig]);
+
+  const SortIcon = ({ columnKey }: { columnKey: SortKey }) => {
+    if (!sortConfig || sortConfig.key !== columnKey) return <ArrowUpDown className="w-3 h-3 text-slate-600" />;
+    return sortConfig.direction === 'asc' ? <ChevronUp className="w-3 h-3 text-emerald-400" /> : <ChevronDown className="w-3 h-3 text-emerald-400" />;
+  };
 
   const ToggleButton = ({ enabled, onClick }: { enabled: boolean; onClick: () => void }) => (
     <button 
@@ -105,7 +150,6 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-200">
-      {/* Navbar */}
       <nav className="border-b border-slate-800 bg-slate-900/50 backdrop-blur-md sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
@@ -133,10 +177,10 @@ const App: React.FC = () => {
               <button 
                 onClick={() => fetchStocks(selectedIndex)}
                 disabled={loading}
-                className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg transition-all disabled:opacity-50 text-sm font-semibold shadow-lg shadow-emerald-900/20"
+                className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg transition-all disabled:opacity-50 text-sm font-semibold shadow-lg"
               >
                 <RefreshCcw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-                {loading ? 'Scanning...' : 'Refresh'}
+                {loading ? 'Analyzing...' : 'Refresh'}
               </button>
             </div>
           </div>
@@ -152,14 +196,25 @@ const App: React.FC = () => {
                   <Filter className="w-5 h-5" />
                   Performance Ranges
                 </h2>
-                <div className="flex items-center gap-4 text-xs">
-                  <span className="text-slate-400">Indexing: <b className="text-emerald-400">{selectedIndex}</b></span>
-                  {data && <span className="text-slate-500 text-[10px] uppercase font-bold tracking-tighter">Universe: {data.allStocks.length} Stocks</span>}
+                <div className="flex items-center gap-4">
+                  <button 
+                    onClick={() => setShowOnlyUndervalued(!showOnlyUndervalued)}
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-[10px] font-bold uppercase transition-all border ${
+                      showOnlyUndervalued 
+                        ? 'bg-emerald-500/10 border-emerald-500 text-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.1)]' 
+                        : 'bg-slate-800 border-slate-700 text-slate-500'
+                    }`}
+                  >
+                    <Target className="w-3 h-3" />
+                    Undervalued Only
+                  </button>
+                  <div className="text-slate-400 text-xs hidden sm:block">
+                    Universe: <b className="text-emerald-400">{selectedIndex}</b>
+                  </div>
                 </div>
               </div>
               
               <div className="space-y-6">
-                {/* 6 Months Row */}
                 <div className={`flex flex-col md:flex-row md:items-center gap-4 transition-opacity ${!criteria.enabled6m ? 'opacity-40' : 'opacity-100'}`}>
                   <div className="w-full md:w-32 flex items-center justify-between md:justify-start gap-2">
                     <span className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">6M Performance</span>
@@ -189,7 +244,6 @@ const App: React.FC = () => {
                   </div>
                 </div>
 
-                {/* 1 Week Row */}
                 <div className={`flex flex-col md:flex-row md:items-center gap-4 transition-opacity ${!criteria.enabled1w ? 'opacity-40' : 'opacity-100'}`}>
                   <div className="w-full md:w-32 flex items-center justify-between md:justify-start gap-2">
                     <span className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">1W Performance</span>
@@ -218,85 +272,50 @@ const App: React.FC = () => {
                     </div>
                   </div>
                 </div>
-
-                {/* 1 Month Row */}
-                <div className={`flex flex-col md:flex-row md:items-center gap-4 transition-opacity ${!criteria.enabled1m ? 'opacity-40' : 'opacity-100'}`}>
-                  <div className="w-full md:w-32 flex items-center justify-between md:justify-start gap-2">
-                    <span className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">1M Thresholds</span>
-                    <ToggleButton enabled={criteria.enabled1m} onClick={() => setCriteria({...criteria, enabled1m: !criteria.enabled1m})} />
-                  </div>
-                  <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="flex items-center gap-3">
-                      <span className="text-[10px] mono text-slate-500 w-8">Upper +</span>
-                      <input 
-                        type="range" min="0" max="100" value={criteria.min1mChange}
-                        disabled={!criteria.enabled1m}
-                        onChange={(e) => setCriteria({...criteria, min1mChange: Number(e.target.value)})}
-                        className="flex-1 accent-blue-500 h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer"
-                      />
-                      <span className="text-[10px] mono text-blue-400 w-10 text-right font-bold">+{criteria.min1mChange}%</span>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <span className="text-[10px] mono text-slate-500 w-8">Lower -</span>
-                      <input 
-                        type="range" min="-100" max="0" value={criteria.max1mChange}
-                        disabled={!criteria.enabled1m}
-                        onChange={(e) => setCriteria({...criteria, max1mChange: Number(e.target.value)})}
-                        className="flex-1 accent-rose-500 h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer"
-                      />
-                      <span className="text-[10px] mono text-rose-400 w-10 text-right font-bold">{criteria.max1mChange}%</span>
-                    </div>
-                  </div>
-                </div>
               </div>
             </section>
 
-            {/* Results Table */}
             <section className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-2xl flex flex-col max-h-[800px]">
               <div className="p-6 border-b border-slate-800 flex flex-wrap gap-4 justify-between items-center bg-slate-900/80 backdrop-blur-sm z-10">
                 <h2 className="text-lg font-semibold flex items-center gap-2">
                   <ListFilter className="w-5 h-5 text-emerald-400" />
-                  Showing {filteredStocks.length} Matching Stocks
-                  <span className="text-slate-500 text-xs font-normal">of {data?.allStocks.length || 0} total found</span>
+                  Matched Stocks
+                  <span className="text-slate-500 text-xs font-normal">({filteredStocks.length} Results)</span>
                 </h2>
-                <div className="flex flex-wrap gap-2">
-                  {criteria.enabled6m && (
-                    <span className="px-2 py-1 bg-emerald-950/20 text-emerald-400 border border-emerald-500/10 rounded text-[10px] uppercase font-bold tracking-tight">
-                      6M: {criteria.min6mChange}% to {criteria.max6mChange}%
-                    </span>
-                  )}
-                  {criteria.enabled1w && (
-                    <span className="px-2 py-1 bg-indigo-950/20 text-indigo-400 border border-indigo-500/10 rounded text-[10px] uppercase font-bold tracking-tight">
-                      1W: {criteria.min1wChange}% to {criteria.max1wChange}%
-                    </span>
-                  )}
-                </div>
               </div>
               
               {loading ? (
                 <div className="flex-1 flex flex-col items-center justify-center p-20 space-y-4">
                   <div className="animate-spin w-10 h-10 border-4 border-emerald-500 border-t-transparent rounded-full"></div>
-                  <p className="text-slate-400 text-sm">Querying exhaustive constituent data for {selectedIndex}...</p>
+                  <p className="text-slate-400 text-sm">Gemini 3 Pro is analyzing the ${selectedIndex} universe...</p>
                 </div>
               ) : error ? (
                 <div className="flex-1 p-12 text-center text-rose-400">{error}</div>
               ) : filteredStocks.length === 0 ? (
                 <div className="flex-1 p-20 text-center text-slate-500 italic text-sm">
-                  No stocks in the entire {selectedIndex} universe match your filters.
+                  No stocks match the current filters. Try relaxing the ranges or toggling "Undervalued Only".
                 </div>
               ) : (
                 <div className="overflow-y-auto flex-1 custom-scrollbar">
                   <table className="w-full text-left border-collapse">
                     <thead className="sticky top-0 z-20 text-[10px] uppercase tracking-widest text-slate-500 bg-slate-950">
                       <tr className="border-b border-slate-800">
-                        <th className="px-6 py-4 bg-slate-950/95 backdrop-blur-sm">Symbol</th>
-                        <th className="px-6 py-4 bg-slate-950/95 backdrop-blur-sm">Company</th>
-                        <th className="px-6 py-4 text-right bg-slate-950/95 backdrop-blur-sm">Price (EGP)</th>
-                        <th className="px-6 py-4 text-right bg-slate-950/95 backdrop-blur-sm">P/E</th>
-                        <th className="px-6 py-4 text-right bg-slate-950/95 backdrop-blur-sm">Fair Value</th>
-                        <th className="px-6 py-4 text-right bg-slate-950/95 backdrop-blur-sm">6M %</th>
-                        <th className="px-6 py-4 text-right bg-slate-950/95 backdrop-blur-sm">1M %</th>
-                        <th className="px-6 py-4 text-right bg-slate-950/95 backdrop-blur-sm">1W %</th>
+                        <th className="px-6 py-4 cursor-pointer hover:bg-slate-900 transition-colors" onClick={() => handleSort('symbol')}>
+                          <div className="flex items-center gap-2">Symbol <SortIcon columnKey="symbol" /></div>
+                        </th>
+                        <th className="px-6 py-4">Company</th>
+                        <th className="px-6 py-4 text-right cursor-pointer hover:bg-slate-900 transition-colors" onClick={() => handleSort('currentPrice')}>
+                          <div className="flex items-center justify-end gap-2">Price <SortIcon columnKey="currentPrice" /></div>
+                        </th>
+                        <th className="px-6 py-4 text-right cursor-pointer hover:bg-slate-900 transition-colors" onClick={() => handleSort('peRatio')}>
+                          <div className="flex items-center justify-end gap-2">P/E <SortIcon columnKey="peRatio" /></div>
+                        </th>
+                        <th className="px-6 py-4 text-right cursor-pointer hover:bg-slate-900 transition-colors" onClick={() => handleSort('upside')}>
+                          <div className="flex items-center justify-end gap-2">Fair Value <SortIcon columnKey="upside" /></div>
+                        </th>
+                        <th className="px-6 py-4 text-right cursor-pointer hover:bg-slate-900 transition-colors" onClick={() => handleSort('change6m')}>
+                          <div className="flex items-center justify-end gap-2">6M % <SortIcon columnKey="change6m" /></div>
+                        </th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800">
@@ -307,18 +326,18 @@ const App: React.FC = () => {
                         return (
                           <tr key={stock.symbol} className="hover:bg-slate-800/40 transition-colors group">
                             <td className="px-6 py-4 font-bold text-emerald-400 font-mono tracking-tight">{stock.symbol}</td>
-                            <td className="px-6 py-4 text-sm font-medium text-slate-200">{stock.name}</td>
-                            <td className="px-6 py-4 text-right mono text-slate-300 text-sm font-bold">
+                            <td className="px-6 py-4 text-xs font-medium text-slate-400 truncate max-w-[150px]">{stock.name}</td>
+                            <td className="px-6 py-4 text-right mono text-slate-200 text-sm font-bold">
                               {stock.currentPrice.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                             </td>
                             <td className="px-6 py-4 text-right">
-                              <span className={`text-xs mono font-bold ${stock.peRatio && stock.peRatio < 10 ? 'text-amber-400' : 'text-slate-400'}`}>
+                              <span className={`text-xs mono font-bold ${stock.peRatio && stock.peRatio < 10 && stock.peRatio > 0 ? 'text-amber-400' : 'text-slate-500'}`}>
                                 {stock.peRatio && stock.peRatio > 0 ? stock.peRatio.toFixed(1) : '—'}
                               </span>
                             </td>
                             <td className="px-6 py-4 text-right">
                               <div className="flex flex-col items-end">
-                                <span className={`text-xs mono font-bold ${isUndervalued ? 'text-emerald-400' : 'text-slate-400'}`}>
+                                <span className={`text-xs mono font-bold ${isUndervalued ? 'text-emerald-400' : 'text-slate-500'}`}>
                                   {stock.fairValue && stock.fairValue > 0 ? stock.fairValue.toLocaleString(undefined, { minimumFractionDigits: 2 }) : '—'}
                                 </span>
                                 {isUndervalued && (
@@ -334,22 +353,6 @@ const App: React.FC = () => {
                                 {stock.change6m}%
                               </span>
                             </td>
-                            <td className="px-6 py-4 text-right">
-                              <span className={`inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-bold ${
-                                !criteria.enabled1m ? 'text-slate-600 bg-slate-800/20' : 
-                                stock.change1m >= 0 ? 'text-blue-400 bg-blue-400/10' : 'text-rose-400 bg-rose-400/10'
-                              }`}>
-                                {stock.change1m}%
-                              </span>
-                            </td>
-                            <td className="px-6 py-4 text-right">
-                              <span className={`inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-bold ${
-                                !criteria.enabled1w ? 'text-slate-600 bg-slate-800/20' :
-                                stock.change1w >= 0 ? 'text-indigo-400 bg-indigo-400/10' : 'text-orange-400 bg-orange-400/10'
-                              }`}>
-                                {stock.change1w}%
-                              </span>
-                            </td>
                           </tr>
                         );
                       })}
@@ -361,11 +364,10 @@ const App: React.FC = () => {
           </div>
 
           <aside className="space-y-6">
-            {/* AI Market Pulse */}
             <section className="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-sm">
               <h3 className="text-sm font-bold mb-4 flex items-center gap-2 uppercase tracking-widest text-purple-400">
                 <BarChart3 className="w-4 h-4" />
-                AI Analysis
+                AI Market Pulse
               </h3>
               <div className="text-xs leading-relaxed text-slate-400 space-y-3">
                 {data ? (
@@ -374,18 +376,16 @@ const App: React.FC = () => {
                   <div className="animate-pulse space-y-2">
                     <div className="h-3 bg-slate-800 rounded w-full"></div>
                     <div className="h-3 bg-slate-800 rounded w-5/6"></div>
-                    <div className="h-3 bg-slate-800 rounded w-4/6"></div>
                   </div>
                 )}
               </div>
             </section>
 
-            {/* Fair Value Potential */}
             {data && (
               <section className="bg-gradient-to-br from-emerald-950/30 to-slate-900 border border-emerald-500/20 p-6 rounded-2xl shadow-sm">
                 <h3 className="text-sm font-bold mb-4 flex items-center gap-2 uppercase tracking-widest text-emerald-400">
                   <Target className="w-4 h-4" />
-                  Value Picks
+                  Value Targets
                 </h3>
                 <div className="space-y-4">
                   {data.allStocks
@@ -410,22 +410,14 @@ const App: React.FC = () => {
               </section>
             )}
 
-            {/* Distribution Map */}
             <section className="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-sm">
               <h3 className="text-[10px] font-bold mb-4 text-slate-500 uppercase tracking-widest">
-                {selectedIndex} Universe Overview
+                Portfolio Distribution
               </h3>
               {data && (
                 <div className="h-40">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={data.allStocks}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
-                      <XAxis dataKey="symbol" hide />
-                      <YAxis stroke="#475569" fontSize={9} />
-                      <Tooltip 
-                        contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #334155', fontSize: '10px', color: '#f1f5f9' }}
-                        itemStyle={{ color: '#10b981' }}
-                      />
                       <Bar dataKey="change6m" radius={[1, 1, 0, 0]}>
                         {data.allStocks.map((entry, index) => {
                           const isMatch = filteredStocks.some(s => s.symbol === entry.symbol);
@@ -437,26 +429,6 @@ const App: React.FC = () => {
                 </div>
               )}
             </section>
-
-            {/* Sources */}
-            {data?.sources && data.sources.length > 0 && (
-              <section className="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-sm">
-                <h3 className="text-[10px] font-bold mb-3 text-slate-500 uppercase tracking-widest flex items-center gap-2">
-                  <Info className="w-3 h-3" />
-                  Grounded Sources
-                </h3>
-                <div className="space-y-2">
-                  {data.sources.slice(0, 5).map((source, idx) => (
-                    <a key={idx} href={source.uri} target="_blank" rel="noopener noreferrer"
-                      className="flex items-start gap-2 p-2 rounded hover:bg-slate-800 transition-all text-[10px] text-slate-400 group border border-transparent hover:border-slate-700"
-                    >
-                      <ExternalLink className="w-2.5 h-2.5 mt-0.5 shrink-0 group-hover:text-blue-400 transition-colors" />
-                      <span className="truncate group-hover:text-slate-200 transition-colors">{source.title}</span>
-                    </a>
-                  ))}
-                </div>
-              </section>
-            )}
           </aside>
         </div>
       </main>
@@ -464,15 +436,7 @@ const App: React.FC = () => {
       <footer className="border-t border-slate-800 bg-slate-950 py-10 mt-12">
         <div className="max-w-7xl mx-auto px-4 text-center space-y-4">
           <p className="text-slate-500 text-[11px] uppercase tracking-widest font-semibold">
-            Comprehensive Stock Analysis for EGX
-          </p>
-          <div className="flex justify-center gap-6 text-[10px] text-slate-600 italic">
-             <span>Data: Gemini AI Search Grounding</span>
-             <span>Region: Egypt</span>
-             <span>Estimates: Analyst Target Medians</span>
-          </div>
-          <p className="text-slate-700 text-[10px] border-t border-slate-900 pt-4 max-w-2xl mx-auto">
-            Risk Warning: Financial data provided by AI models may contain inaccuracies. Always verify with official EGX sources before making investment decisions.
+            EGX Market Intelligence • Powered by Gemini 3 Pro
           </p>
         </div>
       </footer>
