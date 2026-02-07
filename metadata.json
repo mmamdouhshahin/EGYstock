@@ -1,0 +1,7 @@
+{
+  "name": "EGX Stock Screener AI",
+  "description": "A sophisticated stock screening application for the Egyptian Exchange (EGX) that uses Gemini AI and search grounding to identify stocks meeting specific performance criteria like 6-month growth and 1-month volatility.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
