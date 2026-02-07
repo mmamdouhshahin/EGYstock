@@ -1,15 +1,12 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { screenStocks } from './services/geminiService.ts';
-import { StockPerformance, ScreeningResult, ScreeningCriteria } from './types.ts';
+import { screenStocks } from './services/geminiService';
+import { StockPerformance, ScreeningResult, ScreeningCriteria } from './types';
+import { supabase } from './lib/supabaseClient';
 import { 
-  TrendingUp, 
-  TrendingDown, 
   RefreshCcw, 
-  Info, 
   Filter,
   BarChart3,
-  ExternalLink,
   Activity,
   Globe,
   Eye,
@@ -19,15 +16,13 @@ import {
   Zap,
   ChevronUp,
   ChevronDown,
-  ArrowUpDown
+  ArrowUpDown,
+  Star,
+  Bookmark
 } from 'lucide-react';
 import {
   BarChart,
   Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
   ResponsiveContainer,
   Cell
 } from 'recharts';
@@ -47,6 +42,8 @@ const App: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [selectedIndex, setSelectedIndex] = useState('EGX33');
   const [showOnlyUndervalued, setShowOnlyUndervalued] = useState(false);
+  const [showWatchlistOnly, setShowWatchlistOnly] = useState(false);
+  const [watchlist, setWatchlist] = useState<string[]>([]);
   const [sortConfig, setSortConfig] = useState<{ key: SortKey, direction: 'asc' | 'desc' } | null>(null);
 
   const [criteria, setCriteria] = useState<ScreeningCriteria>({
@@ -62,6 +59,50 @@ const App: React.FC = () => {
     useAbsolute1m: true,
   });
 
+  useEffect(() => {
+    const fetchWatchlist = async () => {
+      try {
+        const { data: savedStocks, error } = await supabase
+          .from('watchlist')
+          .select('symbol');
+        
+        if (error) throw error;
+        if (savedStocks) {
+          setWatchlist(savedStocks.map(s => s.symbol));
+        }
+      } catch (err) {
+        console.error("Error fetching watchlist:", err);
+      }
+    };
+    fetchWatchlist();
+  }, []);
+
+  const toggleWatchlist = async (stock: StockPerformance) => {
+    const isSaved = watchlist.includes(stock.symbol);
+    try {
+      if (isSaved) {
+        const { error } = await supabase
+          .from('watchlist')
+          .delete()
+          .eq('symbol', stock.symbol);
+        if (error) throw error;
+        setWatchlist(prev => prev.filter(s => s !== stock.symbol));
+      } else {
+        const { error } = await supabase
+          .from('watchlist')
+          .insert([{ 
+            symbol: stock.symbol, 
+            name: stock.name, 
+            price_at_save: stock.currentPrice 
+          }]);
+        if (error) throw error;
+        setWatchlist(prev => [...prev, stock.symbol]);
+      }
+    } catch (err) {
+      console.error("Supabase Operation Failed:", err);
+    }
+  };
+
   const fetchStocks = useCallback(async (indexToFetch: string) => {
     setLoading(true);
     setError(null);
@@ -69,7 +110,7 @@ const App: React.FC = () => {
       const result = await screenStocks(indexToFetch);
       setData(result);
     } catch (err) {
-      setError(`Failed to fetch ${indexToFetch} data. Please check your connection and try again.`);
+      setError(`Failed to fetch ${indexToFetch} data.`);
     } finally {
       setLoading(false);
     }
@@ -102,9 +143,10 @@ const App: React.FC = () => {
         }
       }
       
-      const meetsUndervalued = !showOnlyUndervalued || (stock.fairValue && stock.fairValue > stock.currentPrice);
+      const meetsUndervalued = !showOnlyUndervalued || !!(stock.fairValue && stock.fairValue > stock.currentPrice);
+      const meetsWatchlist = !showWatchlistOnly || watchlist.includes(stock.symbol);
       
-      return meets6m && meets1m && meets1w && meetsUndervalued;
+      return meets6m && meets1m && meets1w && meetsUndervalued && meetsWatchlist;
     });
 
     if (sortConfig) {
@@ -127,7 +169,7 @@ const App: React.FC = () => {
     }
 
     return result;
-  }, [data, criteria, showOnlyUndervalued, sortConfig]);
+  }, [data, criteria, showOnlyUndervalued, showWatchlistOnly, watchlist, sortConfig]);
 
   const SortIcon = ({ columnKey }: { columnKey: SortKey }) => {
     if (!sortConfig || sortConfig.key !== columnKey) return <ArrowUpDown className="w-3 h-3 text-slate-600" />;
@@ -149,7 +191,7 @@ const App: React.FC = () => {
   );
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-200">
+    <div className="min-h-screen bg-black text-slate-200">
       <nav className="border-b border-slate-800 bg-slate-900/50 backdrop-blur-md sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
@@ -196,7 +238,18 @@ const App: React.FC = () => {
                   <Filter className="w-5 h-5" />
                   Performance Ranges
                 </h2>
-                <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2">
+                  <button 
+                    onClick={() => setShowWatchlistOnly(!showWatchlistOnly)}
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-[10px] font-bold uppercase transition-all border ${
+                      showWatchlistOnly 
+                        ? 'bg-amber-500/10 border-amber-500 text-amber-400 shadow-[0_0_15px_rgba(245,158,11,0.1)]' 
+                        : 'bg-slate-800 border-slate-700 text-slate-500'
+                    }`}
+                  >
+                    <Bookmark className="w-3 h-3" />
+                    Watchlist ({watchlist.length})
+                  </button>
                   <button 
                     onClick={() => setShowOnlyUndervalued(!showOnlyUndervalued)}
                     className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-[10px] font-bold uppercase transition-all border ${
@@ -206,18 +259,15 @@ const App: React.FC = () => {
                     }`}
                   >
                     <Target className="w-3 h-3" />
-                    Undervalued Only
+                    Undervalued
                   </button>
-                  <div className="text-slate-400 text-xs hidden sm:block">
-                    Universe: <b className="text-emerald-400">{selectedIndex}</b>
-                  </div>
                 </div>
               </div>
               
               <div className="space-y-6">
                 <div className={`flex flex-col md:flex-row md:items-center gap-4 transition-opacity ${!criteria.enabled6m ? 'opacity-40' : 'opacity-100'}`}>
                   <div className="w-full md:w-32 flex items-center justify-between md:justify-start gap-2">
-                    <span className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">6M Performance</span>
+                    <span className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">6M Growth</span>
                     <ToggleButton enabled={criteria.enabled6m} onClick={() => setCriteria({...criteria, enabled6m: !criteria.enabled6m})} />
                   </div>
                   <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -243,35 +293,6 @@ const App: React.FC = () => {
                     </div>
                   </div>
                 </div>
-
-                <div className={`flex flex-col md:flex-row md:items-center gap-4 transition-opacity ${!criteria.enabled1w ? 'opacity-40' : 'opacity-100'}`}>
-                  <div className="w-full md:w-32 flex items-center justify-between md:justify-start gap-2">
-                    <span className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">1W Performance</span>
-                    <ToggleButton enabled={criteria.enabled1w} onClick={() => setCriteria({...criteria, enabled1w: !criteria.enabled1w})} />
-                  </div>
-                  <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="flex items-center gap-3">
-                      <span className="text-[10px] mono text-slate-500 w-8">Min</span>
-                      <input 
-                        type="range" min="-50" max="100" value={criteria.min1wChange}
-                        disabled={!criteria.enabled1w}
-                        onChange={(e) => setCriteria({...criteria, min1wChange: Number(e.target.value)})}
-                        className="flex-1 accent-indigo-500 h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer"
-                      />
-                      <span className="text-[10px] mono text-indigo-400 w-10 text-right font-bold">{criteria.min1wChange}%</span>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <span className="text-[10px] mono text-slate-500 w-8">Max</span>
-                      <input 
-                        type="range" min="-50" max="100" value={criteria.max1wChange}
-                        disabled={!criteria.enabled1w}
-                        onChange={(e) => setCriteria({...criteria, max1wChange: Number(e.target.value)})}
-                        className="flex-1 accent-indigo-500 h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer"
-                      />
-                      <span className="text-[10px] mono text-indigo-400 w-10 text-right font-bold">{criteria.max1wChange}%</span>
-                    </div>
-                  </div>
-                </div>
               </div>
             </section>
 
@@ -287,20 +308,21 @@ const App: React.FC = () => {
               {loading ? (
                 <div className="flex-1 flex flex-col items-center justify-center p-20 space-y-4">
                   <div className="animate-spin w-10 h-10 border-4 border-emerald-500 border-t-transparent rounded-full"></div>
-                  <p className="text-slate-400 text-sm">Gemini 3 Pro is analyzing the ${selectedIndex} universe...</p>
+                  <p className="text-slate-400 text-sm">Gemini 3 Pro is analyzing the EGX Market...</p>
                 </div>
               ) : error ? (
                 <div className="flex-1 p-12 text-center text-rose-400">{error}</div>
               ) : filteredStocks.length === 0 ? (
                 <div className="flex-1 p-20 text-center text-slate-500 italic text-sm">
-                  No stocks match the current filters. Try relaxing the ranges or toggling "Undervalued Only".
+                  No stocks match the current filters.
                 </div>
               ) : (
                 <div className="overflow-y-auto flex-1 custom-scrollbar">
                   <table className="w-full text-left border-collapse">
                     <thead className="sticky top-0 z-20 text-[10px] uppercase tracking-widest text-slate-500 bg-slate-950">
                       <tr className="border-b border-slate-800">
-                        <th className="px-6 py-4 cursor-pointer hover:bg-slate-900 transition-colors" onClick={() => handleSort('symbol')}>
+                        <th className="px-6 py-4 w-10"></th>
+                        <th className="px-4 py-4 cursor-pointer hover:bg-slate-900 transition-colors" onClick={() => handleSort('symbol')}>
                           <div className="flex items-center gap-2">Symbol <SortIcon columnKey="symbol" /></div>
                         </th>
                         <th className="px-6 py-4">Company</th>
@@ -313,19 +335,25 @@ const App: React.FC = () => {
                         <th className="px-6 py-4 text-right cursor-pointer hover:bg-slate-900 transition-colors" onClick={() => handleSort('upside')}>
                           <div className="flex items-center justify-end gap-2">Fair Value <SortIcon columnKey="upside" /></div>
                         </th>
-                        <th className="px-6 py-4 text-right cursor-pointer hover:bg-slate-900 transition-colors" onClick={() => handleSort('change6m')}>
-                          <div className="flex items-center justify-end gap-2">6M % <SortIcon columnKey="change6m" /></div>
-                        </th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800">
                       {filteredStocks.map((stock) => {
-                        const isUndervalued = stock.fairValue && stock.fairValue > stock.currentPrice;
+                        const isUndervalued = !!(stock.fairValue && stock.fairValue > stock.currentPrice);
+                        const isSaved = watchlist.includes(stock.symbol);
                         const discount = isUndervalued ? ((stock.fairValue! - stock.currentPrice) / stock.currentPrice * 100).toFixed(1) : 0;
                         
                         return (
                           <tr key={stock.symbol} className="hover:bg-slate-800/40 transition-colors group">
-                            <td className="px-6 py-4 font-bold text-emerald-400 font-mono tracking-tight">{stock.symbol}</td>
+                            <td className="px-6 py-4">
+                              <button 
+                                onClick={() => toggleWatchlist(stock)}
+                                className={`transition-all transform hover:scale-125 ${isSaved ? 'text-amber-400' : 'text-slate-700 group-hover:text-slate-500'}`}
+                              >
+                                <Star className={`w-4 h-4 ${isSaved ? 'fill-amber-400' : ''}`} />
+                              </button>
+                            </td>
+                            <td className="px-4 py-4 font-bold text-emerald-400 font-mono tracking-tight">{stock.symbol}</td>
                             <td className="px-6 py-4 text-xs font-medium text-slate-400 truncate max-w-[150px]">{stock.name}</td>
                             <td className="px-6 py-4 text-right mono text-slate-200 text-sm font-bold">
                               {stock.currentPrice.toLocaleString(undefined, { minimumFractionDigits: 2 })}
@@ -347,11 +375,6 @@ const App: React.FC = () => {
                                   </span>
                                 )}
                               </div>
-                            </td>
-                            <td className="px-6 py-4 text-right">
-                              <span className={`inline-flex items-center gap-1 bg-emerald-400/10 px-2 py-1 rounded text-[11px] font-bold ${criteria.enabled6m ? 'text-emerald-400 border border-emerald-500/20' : 'text-slate-600'}`}>
-                                {stock.change6m}%
-                              </span>
                             </td>
                           </tr>
                         );
@@ -381,28 +404,23 @@ const App: React.FC = () => {
               </div>
             </section>
 
-            {data && (
-              <section className="bg-gradient-to-br from-emerald-950/30 to-slate-900 border border-emerald-500/20 p-6 rounded-2xl shadow-sm">
-                <h3 className="text-sm font-bold mb-4 flex items-center gap-2 uppercase tracking-widest text-emerald-400">
-                  <Target className="w-4 h-4" />
-                  Value Targets
+            {watchlist.length > 0 && (
+              <section className="bg-gradient-to-br from-amber-950/20 to-slate-900 border border-amber-500/20 p-6 rounded-2xl shadow-sm">
+                <h3 className="text-sm font-bold mb-4 flex items-center gap-2 uppercase tracking-widest text-amber-400">
+                  <Bookmark className="w-4 h-4" />
+                  My Watchlist
                 </h3>
-                <div className="space-y-4">
-                  {data.allStocks
-                    .filter(s => s.fairValue && s.fairValue > s.currentPrice)
-                    .sort((a, b) => ((b.fairValue! - b.currentPrice) / b.currentPrice) - ((a.fairValue! - a.currentPrice) / a.currentPrice))
-                    .slice(0, 3)
+                <div className="space-y-3">
+                  {data?.allStocks
+                    .filter(s => watchlist.includes(s.symbol))
                     .map(stock => (
-                      <div key={stock.symbol} className="border-b border-slate-800 pb-3 last:border-0 last:pb-0">
-                        <div className="flex justify-between items-center mb-1">
-                          <span className="text-xs font-bold text-slate-200">{stock.symbol}</span>
-                          <span className="text-[10px] text-emerald-400 font-bold">
-                            +{((stock.fairValue! - stock.currentPrice) / stock.currentPrice * 100).toFixed(0)}% Upside
-                          </span>
-                        </div>
-                        <div className="flex justify-between text-[10px] text-slate-500">
-                          <span>Price: {stock.currentPrice}</span>
-                          <span>Fair: {stock.fairValue}</span>
+                      <div key={stock.symbol} className="flex justify-between items-center group">
+                        <span className="text-xs font-bold text-slate-200">{stock.symbol}</span>
+                        <div className="flex items-center gap-3">
+                          <span className="text-[10px] mono text-slate-500">{stock.currentPrice}</span>
+                          <button onClick={() => toggleWatchlist(stock)} className="opacity-0 group-hover:opacity-100 transition-opacity">
+                            <Star className="w-3 h-3 text-amber-400 fill-amber-400" />
+                          </button>
                         </div>
                       </div>
                     ))}
@@ -411,8 +429,8 @@ const App: React.FC = () => {
             )}
 
             <section className="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-sm">
-              <h3 className="text-[10px] font-bold mb-4 text-slate-500 uppercase tracking-widest">
-                Portfolio Distribution
+              <h3 className="text-[10px] font-bold mb-4 text-slate-500 uppercase tracking-widest text-center">
+                EGX Universe Overview
               </h3>
               {data && (
                 <div className="h-40">
@@ -436,7 +454,7 @@ const App: React.FC = () => {
       <footer className="border-t border-slate-800 bg-slate-950 py-10 mt-12">
         <div className="max-w-7xl mx-auto px-4 text-center space-y-4">
           <p className="text-slate-500 text-[11px] uppercase tracking-widest font-semibold">
-            EGX Market Intelligence • Powered by Gemini 3 Pro
+            EGX Market Intelligence • Powered by Gemini & Supabase
           </p>
         </div>
       </footer>

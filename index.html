@@ -12,19 +12,18 @@
     <style>
       body {
         font-family: 'Inter', sans-serif;
-        background-color: #0f172a;
+        background-color: #000000;
         color: #f8fafc;
         margin: 0;
       }
       .mono {
         font-family: 'JetBrains Mono', monospace;
       }
-      /* Custom scrollbar for a pro feel */
       .custom-scrollbar::-webkit-scrollbar {
         width: 6px;
       }
       .custom-scrollbar::-webkit-scrollbar-track {
-        background: #0f172a;
+        background: #000000;
       }
       .custom-scrollbar::-webkit-scrollbar-thumb {
         background: #1e293b;
@@ -37,21 +36,21 @@
   <script type="importmap">
 {
   "imports": {
-    "react-dom/": "https://esm.sh/react-dom@^19.2.4/",
+    "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.1.3",
+    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@^2.95.3",
     "lucide-react": "https://esm.sh/lucide-react@^0.563.0",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.4/",
+    "vite": "https://esm.sh/vite@^7.3.1",
+    "@google/genai": "https://esm.sh/@google/genai@^1.40.0",
     "recharts": "https://esm.sh/recharts@^3.7.0",
-    "@google/genai": "https://esm.sh/@google/genai@^1.39.0",
     "react/": "https://esm.sh/react@^19.2.4/",
-    "react": "https://esm.sh/react@^19.2.4",
-    "./App": "./App.tsx",
-    "./services/geminiService": "./services/geminiService.ts"
+    "react": "https://esm.sh/react@^19.2.4"
   }
 }
 </script>
 </head>
   <body>
     <div id="root"></div>
-    <!-- Explicit module entry point to prevent blank page -->
-    <script type="module" src="index.tsx"></script>
+    <script type="module" src="/index.tsx"></script>
   </body>
 </html>
